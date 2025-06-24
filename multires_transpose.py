@@ -13,8 +13,9 @@ TRANSPOSE_TARGET_NAME = "Multires_Transpose_Target"
 
 
 class LoggerOperator(bpy.types.Operator):
-    def __init__(self):
-        self.logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
+    """Base operator providing a logger instance."""
+
+    logger = logging.getLogger(__name__)
 
 
 class MULTIRES_TRANSPOSE_OT_create_transpose_target(LoggerOperator):

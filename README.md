@@ -1,7 +1,7 @@
 # Multires Transpose
 An addon inspired by ZBrush's Transpose Master Plugin. It aims to mimic its functionality by allowing the user to edit an arbitrary number of multiresolution modifier-enabled meshes at once through a single lower subdivision level mesh, with support for objects with different subdivison levels, as well as meshes without the multires modifier.
 
-Requires Blender 3.0 or later.
+Requires Blender 4.4 or later.
 
 ## How to use:
 UI Panel located in the sidebar of the 3D viewport under `Edit > Multires Transpose`
