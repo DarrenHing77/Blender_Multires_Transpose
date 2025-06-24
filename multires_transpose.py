@@ -12,13 +12,7 @@ import numpy as np
 TRANSPOSE_TARGET_NAME = "Multires_Transpose_Target"
 
 
-class LoggerOperator(bpy.types.Operator):
-    """Base operator providing a logger instance."""
-
-    logger = logging.getLogger(__name__)
-
-
-class MULTIRES_TRANSPOSE_OT_create_transpose_target(LoggerOperator):
+class MULTIRES_TRANSPOSE_OT_create_transpose_target(bpy.types.Operator):
     bl_idname = "multires_transpose.create_transpose_target"
     bl_label = "Create Transpose Target"
     bl_options = {'REGISTER', 'UNDO'}
@@ -44,6 +38,10 @@ class MULTIRES_TRANSPOSE_OT_create_transpose_target(LoggerOperator):
         default=True,
         description="Hide the original objects after creating the transpose target"
     )
+
+    @property
+    def logger(self):
+        return logging.getLogger(__name__ + "." + self.__class__.__name__)
 
     def execute(self, context):
         start_time = time.time()
@@ -82,7 +80,7 @@ class MULTIRES_TRANSPOSE_OT_create_transpose_target(LoggerOperator):
         return wm.invoke_props_dialog(self)
 
 
-class MULTIRES_TRANSPOSE_OT_apply_transpose_target(LoggerOperator):
+class MULTIRES_TRANSPOSE_OT_apply_transpose_target(bpy.types.Operator):
     bl_idname = "multires_transpose.apply_transpose_target"
     bl_label = "Apply Transpose Target"
     bl_options = {'REGISTER', 'UNDO'}
@@ -116,6 +114,15 @@ class MULTIRES_TRANSPOSE_OT_apply_transpose_target(LoggerOperator):
         default=True,
         description="Hide the transpose target after applying it"
     )
+    apply_base: bpy.props.BoolProperty(
+        name="Apply Base",
+        default=False,
+        description="Apply the base mesh to the multires modifier after reshaping"
+    )
+
+    @property
+    def logger(self):
+        return logging.getLogger(__name__ + "." + self.__class__.__name__)
 
     def execute(self, context):
         start_time = time.time()
@@ -164,6 +171,9 @@ class MULTIRES_TRANSPOSE_OT_apply_transpose_target(LoggerOperator):
                         if not self.auto_iterations:
                             for _ in range(self.iterations):
                                 bpy.ops.object.multires_reshape(modifier=multires_modifier.name)
+                            # Apply base if requested
+                            if self.apply_base:
+                                bpy.ops.object.multires_base_apply(modifier=multires_modifier.name)
                         else:
                             while diff > self.threshold and (abs(diff - last_diff) > 0.00001) and iteration < self.max_auto_iterations:
                                 bpy.ops.object.multires_reshape(modifier=multires_modifier.name)
@@ -184,6 +194,11 @@ class MULTIRES_TRANSPOSE_OT_apply_transpose_target(LoggerOperator):
                                 f"{'Last Diff:':<15}{last_diff}\n"
                                 f"{'Iteration:':<15}{iteration}/{self.max_auto_iterations}"
                             )
+                        
+                        # Apply base if requested
+                        if self.apply_base:
+                            bpy.ops.object.multires_base_apply(modifier=multires_modifier.name)
+                        
                         multires_modifier.levels = current_level
                 # Directly copy vertex coordinates if the original multires level is 0 or if the original object
                 # has no multires modifier, in which case the original_multires_level will be -1
@@ -207,6 +222,7 @@ class MULTIRES_TRANSPOSE_OT_apply_transpose_target(LoggerOperator):
 
         col.prop(self, "auto_iterations", text="Auto Iterations. This may take a long time to finish")
         col.prop(self, "hide_transpose", text="Hide Transpose Target")
+        col.prop(self, "apply_base", text="Apply Base")
 
         if self.auto_iterations:
             row = col.row()
