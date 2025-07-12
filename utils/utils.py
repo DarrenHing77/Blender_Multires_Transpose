@@ -3,7 +3,7 @@ import bpy
 import bmesh
 from typing import Iterable, List, Tuple
 from .bmesh_context import bmesh_from_obj
-from .bmesh_utils import write_layer_data, read_layer_data, bmesh_join, bmesh_from_faces
+from .bmesh_utils import write_layer_data, read_layer_data, bmesh_join, bmesh_from_faces, copy_facesets_to_bmesh
 from ..data_types import MeshDomain, MeshLayerType
 
 ORIGINAL_OBJECT_NAME_LAYER = "original_object_name"
@@ -118,6 +118,9 @@ def copy_multires_objs_to_new_mesh(context: bpy.types.Context, objects: Iterable
 
         # Record the original subidivision level in the new object's vertex layer, or -1 if multires_level is None
         write_layer_data(bm, MeshDomain.VERTS, MeshLayerType.INT, ORIGINAL_SUBDIVISION_LEVEL_LAYER, [(multires_level if multires_level is not None else -1) for _ in bm.verts])
+        
+        # Preserve facesets
+        copy_facesets_to_bmesh(object, bm)
 
     # Create new mesh and object, then link it
     transpose_target_mesh = bpy.data.meshes.new(name="Multires_Transpose_Target")
@@ -152,6 +155,16 @@ def copy_multires_objs_to_new_mesh(context: bpy.types.Context, objects: Iterable
             record_data_helper(bm, object, None)
             bms.append(bm)
             merged_objs.append(object)
+
+    # Check if we have any meshes to join
+    if not bms:
+        # Cleanup empty bmeshes
+        for bm in bms:
+            bm.free()
+        # Reenable disabled modifiers
+        for mod in disabled_modifiers:
+            mod.show_viewport = True
+        raise ValueError("No valid objects found. Select objects with multires modifiers or enable 'Include Non-Multires Objects'")
 
     final_bm = bmesh_join(bms)
     final_bm.to_mesh(transpose_target_mesh)

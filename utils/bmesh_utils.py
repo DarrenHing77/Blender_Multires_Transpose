@@ -2,6 +2,7 @@ import bmesh
 from ..data_types import MeshDomain, MeshLayerType
 from typing import Iterable, Any
 import operator
+import bpy
 
 ALL_DOMAINS = {'faces', 'edges', 'verts', 'loops'}
 ALL_POSSIBLE_LAYERS = {'bevel_weight', 'int', 'paint_mask', 'float_color', 'string', 'freestyle', 'skin', 'float_vector', 'uv', 'shape', 'deform', 'crease', 'face_map', 'color', 'float'}
@@ -131,6 +132,49 @@ def copy_all_layers(src_bmesh: bmesh.types.BMesh, dst_bmesh: bmesh.types.BMesh) 
                     dst_attrs.new(name)
 
 
+def copy_facesets_to_bmesh(src_obj: bpy.types.Object, dst_bm: bmesh.types.BMesh) -> None:
+    """Copy facesets from object to bmesh - simplified version"""
+    try:
+        # Try to access sculpt face sets (may not exist in all Blender versions)
+        if hasattr(src_obj.data, 'sculpt_face_sets') and len(src_obj.data.sculpt_face_sets) > 0:
+            # Get or create faceset layer
+            if ".sculpt_face_set" not in dst_bm.faces.layers.int:
+                faceset_layer = dst_bm.faces.layers.int.new(".sculpt_face_set")
+            else:
+                faceset_layer = dst_bm.faces.layers.int[".sculpt_face_set"]
+            
+            # Copy faceset values
+            for i, face in enumerate(dst_bm.faces):
+                if i < len(src_obj.data.sculpt_face_sets):
+                    face[faceset_layer] = src_obj.data.sculpt_face_sets[i]
+                else:
+                    face[faceset_layer] = 1  # Default faceset
+    except:
+        # Silently fail if facesets aren't supported/available
+        pass
+
+
+def copy_facesets_from_bmesh(src_bm: bmesh.types.BMesh, dst_obj: bpy.types.Object) -> None:
+    """Copy facesets from bmesh back to object - simplified version"""
+    try:
+        faceset_layer = src_bm.faces.layers.int.get(".sculpt_face_set")
+        if not faceset_layer or not hasattr(dst_obj.data, 'sculpt_face_sets'):
+            return
+            
+        # Try to update sculpt face sets
+        if hasattr(dst_obj.data.sculpt_face_sets, 'clear'):
+            dst_obj.data.sculpt_face_sets.clear()
+            dst_obj.data.sculpt_face_sets.add(len(src_bm.faces))
+            
+            # Copy values
+            for i, face in enumerate(src_bm.faces):
+                if i < len(dst_obj.data.sculpt_face_sets):
+                    dst_obj.data.sculpt_face_sets[i] = face[faceset_layer]
+    except:
+        # Silently fail if facesets aren't supported/available
+        pass
+
+
 def bmesh_from_faces(src_bmesh: bmesh.types.BMesh, faces: Iterable[bmesh.types.BMFace]) -> bmesh.types.BMesh:
     """
     Create a new bmesh from a given sequence of faces from the given src_bmesh
@@ -174,13 +218,19 @@ def bmesh_join(list_of_bmeshes: Iterable[bmesh.types.BMesh], normal_update=False
     Modified from https://blender.stackexchange.com/questions/50160/scripting-low-level-join-meshes-elements-hopefully-with-bmesh
     """
 
+    # Convert to list to check length
+    bmesh_list = list(list_of_bmeshes)
+    
+    if not bmesh_list:
+        raise ValueError("Cannot join empty list of bmeshes")
+
     bm = bmesh.new()
     add_vert = bm.verts.new
     add_face = bm.faces.new
 
-    copy_all_layers(list_of_bmeshes[0], bm)
+    copy_all_layers(bmesh_list[0], bm)
 
-    for bm_to_add in list_of_bmeshes:
+    for bm_to_add in bmesh_list:
 
         for v in bm_to_add.verts:
             nv = add_vert(v.co, v)
@@ -190,7 +240,7 @@ def bmesh_join(list_of_bmeshes: Iterable[bmesh.types.BMesh], normal_update=False
     bm.verts.ensure_lookup_table()
 
     offset = 0
-    for bm_to_add in list_of_bmeshes:
+    for bm_to_add in bmesh_list:
 
         if bm_to_add.faces:
             for face in bm_to_add.faces:
