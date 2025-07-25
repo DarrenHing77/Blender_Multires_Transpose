@@ -9,7 +9,7 @@ class MultiresTransposePanel(bpy.types.Panel):
 
 class MULTIRES_TRANSPOSE_PT_operator_panel(MultiresTransposePanel):
     bl_label = "Multires Transpose"
-    bl_options = {'DEFAULT_CLOSED'}
+    bl_options = {'DEFAULT_OPEN'}
 
     def draw(self, context):
         layout = self.layout

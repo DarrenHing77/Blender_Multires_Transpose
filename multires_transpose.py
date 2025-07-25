@@ -6,7 +6,7 @@ from .data_types import MeshDomain, MeshLayerType
 from .utils.bmesh_context import bmesh_from_obj
 from .utils.utils import copy_multires_objs_to_new_mesh, create_meshes_by_original_name, restore_vertex_index
 from .utils.utils import ORIGINAL_SUBDIVISION_LEVEL_LAYER
-from .utils.bmesh_utils import bmesh_copy_vert_location, read_layer_data
+from .utils.bmesh_utils import bmesh_copy_vert_location, read_layer_data, copy_facesets_from_bmesh
 import numpy as np
 
 TRANSPOSE_TARGET_NAME = "Multires_Transpose_Target"
@@ -30,7 +30,7 @@ class MULTIRES_TRANSPOSE_OT_create_transpose_target(bpy.types.Operator):
     )
     include_non_multires: bpy.props.BoolProperty(
         name="Include Non-Multires Objects",
-        default=False,
+        default=True,
         description="Include objects that do not have a multires modifier in the transpose target"
     )
     hide_original: bpy.props.BoolProperty(
@@ -46,7 +46,13 @@ class MULTIRES_TRANSPOSE_OT_create_transpose_target(bpy.types.Operator):
     def execute(self, context):
         start_time = time.time()
         multires_level = self.multires_level if not self.use_multires_level_as_is else None
-        transpose_target, merged_objs = copy_multires_objs_to_new_mesh(context, context.selected_objects, multires_level, self.include_non_multires)
+        
+        try:
+            transpose_target, merged_objs = copy_multires_objs_to_new_mesh(context, context.selected_objects, multires_level, self.include_non_multires)
+        except ValueError as e:
+            self.report({'ERROR'}, str(e))
+            return {'CANCELLED'}
+            
         transpose_target.name = TRANSPOSE_TARGET_NAME
 
         for obj in context.selected_objects:
@@ -91,34 +97,39 @@ class MULTIRES_TRANSPOSE_OT_apply_transpose_target(bpy.types.Operator):
         min=0.0,
         step=0.01,
         description="Threshold for the difference between the original mesh and the transpose target mesh. Only used if Auto Iterations is enabled"
-    )
+    )# type: ignore
     auto_iterations: bpy.props.BoolProperty(
         name="Auto Iterations",
         default=False,
         description="Automatically apply reshape until the threshold is reached."
-    )
+    )# type: ignore
     max_auto_iterations: bpy.props.IntProperty(
         name="Max Auto Iterations",
         default=100,
         min=1,
         description="Maximum number of iterations to apply reshape when Auto Iterations is enabled"
-    )
+    )# type: ignore
     iterations: bpy.props.IntProperty(
         name="Max Iterations",
         default=1,
         min=1,
         description="Maximum number of iterations to apply reshape. Only used if Auto Iterations is disabled"
-    )
+    )# type: ignore
     hide_transpose: bpy.props.BoolProperty(
         name="Hide Transpose Target",
-        default=True,
+        default=False,
         description="Hide the transpose target after applying it"
-    )
+    ) # type: ignore
+    delete_transpose: bpy.props.BoolProperty(
+        name="Delete Transpose Target",
+        default=True,
+        description="Delete the transpose target after applying it"
+    )# type: ignore
     apply_base: bpy.props.BoolProperty(
         name="Apply Base",
-        default=False,
+        default=True,
         description="Apply the base mesh to the multires modifier after reshaping"
-    )
+    )# type: ignore
 
     @property
     def logger(self):
@@ -174,6 +185,9 @@ class MULTIRES_TRANSPOSE_OT_apply_transpose_target(bpy.types.Operator):
                             # Apply base if requested
                             if self.apply_base:
                                 bpy.ops.object.multires_base_apply(modifier=multires_modifier.name)
+                            
+                            # Restore facesets after reshaping
+                            copy_facesets_from_bmesh(bm, original_obj)
                         else:
                             while diff > self.threshold and (abs(diff - last_diff) > 0.00001) and iteration < self.max_auto_iterations:
                                 bpy.ops.object.multires_reshape(modifier=multires_modifier.name)
@@ -199,17 +213,26 @@ class MULTIRES_TRANSPOSE_OT_apply_transpose_target(bpy.types.Operator):
                         if self.apply_base:
                             bpy.ops.object.multires_base_apply(modifier=multires_modifier.name)
                         
+                        # Restore facesets after reshaping
+                        copy_facesets_from_bmesh(bm, original_obj)
+                        
                         multires_modifier.levels = current_level
                 # Directly copy vertex coordinates if the original multires level is 0 or if the original object
                 # has no multires modifier, in which case the original_multires_level will be -1
                 else:
                     with bmesh_from_obj(original_obj) as obm:
                         bmesh_copy_vert_location(bm, obm)
+                        # Restore facesets for non-multires objects
+                        copy_facesets_from_bmesh(bm, original_obj)
         # Cleanup targets
         for obj in transpose_targets:
             bpy.data.objects.remove(obj, do_unlink=True, do_id_user=True, do_ui_user=True)
 
-        if self.hide_transpose:
+        if self.delete_transpose:
+            # Delete the transpose target completely
+            bpy.data.objects.remove(active_obj, do_unlink=True, do_id_user=True, do_ui_user=True)
+        elif self.hide_transpose:
+            # Only hide if not deleting
             active_obj.hide_set(True)
 
         self.logger.debug(f"Time taken to apply Transpose Target: {time.time() - start_time}")
@@ -221,7 +244,12 @@ class MULTIRES_TRANSPOSE_OT_apply_transpose_target(bpy.types.Operator):
         col.label(text="Settings:", icon="SETTINGS")
 
         col.prop(self, "auto_iterations", text="Auto Iterations. This may take a long time to finish")
-        col.prop(self, "hide_transpose", text="Hide Transpose Target")
+        col.prop(self, "delete_transpose", text="Delete Transpose Target")
+        
+        row = col.row()
+        row.prop(self, "hide_transpose", text="Hide Transpose Target")
+        row.enabled = not self.delete_transpose  # Disable hide if delete is enabled
+        
         col.prop(self, "apply_base", text="Apply Base")
 
         if self.auto_iterations:
